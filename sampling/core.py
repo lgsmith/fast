@@ -239,9 +239,9 @@ def _pickle_submit(
     f.close()
     # generate python run commands for submission
     if numexpr_max_threads:
-        cmd0 = 'export NUMEXPR_MAX_THREADS=' + str(numexpr_max_threads)
+        cmd0 = 'export NUMEXPR_MAX_THREADS=' + str(numexpr_max_threads) + '\n'
     else:
-        cmd0 = 'export NUMEXPR_MAX_THREADS=' + str(sub_obj.n_tasks)
+        cmd0 = 'export NUMEXPR_MAX_THREADS=' + str(sub_obj.n_tasks) + '\n'
     cmd1 = 'sync\n'
     cmd2 = 'python ' + base_name + '.py'
     
