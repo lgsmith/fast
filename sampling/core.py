@@ -203,7 +203,7 @@ def _move_trjs(gen_dir, msm_dir, gen_num, n_kids):
 
 
 def _pickle_submit(
-        msm_dir, base_obj, sub_obj, q_check_obj, gen_num, base_name):
+        msm_dir, base_obj, sub_obj, q_check_obj, gen_num, base_name, numexpr_max_threads=None):
     """Helper function for pickling an object and submitting it to run.
 
     Inputs
@@ -238,9 +238,14 @@ def _pickle_submit(
         'c.run()')
     f.close()
     # generate python run commands for submission
-    cmd0 = 'sync\n'
-    cmd1 = 'python ' + base_name + '.py'
-    cmds = [cmd0, cmd1]
+    if numexpr_max_threads:
+        cmd0 = 'export NUMEXPR_MAX_THREADS=' + str(numexpr_max_threads)
+    else:
+        cmd0 = 'export NUMEXPR_MAX_THREADS=' + str(sub_obj.n_tasks)
+    cmd1 = 'sync\n'
+    cmd2 = 'python ' + base_name + '.py'
+    
+    cmds = [cmd0, cmd1, cmd2]
     base_submission = base_name + '_submission'
     # submit and wait for job to finish
     pid = sub_obj.run(cmds, output_name=base_submission)
