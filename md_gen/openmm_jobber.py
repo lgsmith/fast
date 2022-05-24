@@ -1,4 +1,4 @@
-from open_mm.app import *
+from openmm.app import *
 from openmm import *
 from openmm.unit import *
 import json
