@@ -1,4 +1,4 @@
-# Author: Maxwell I. Zimmerman <mizimmer@wustl.edu>
+exec
 # Contributors:
 # Copywright (C) 2017, Washington University in St. Louis
 # All rights reserved.

@@ -1,19 +1,22 @@
 import mdtraj as md
 import numpy as np
-import os
 from .. import tools
 from pathlib import Path
+import os
 import submissions
 from ..base import base
 
-with open('openmm_jobber.py', 'r') as f:
-    default_omm_script = f.read()
+
+# read in default job & processing scripts, for use in Processing and Run objects below.
+default_omm_script = Path('omm_jobber.py').absolute()
+default_processing_script = Path('default-aligner.sh', 'r').absolute()
+
 
 class OpenMMProcessing(base):
     """Writes a script for postprocessing simulations into directory, then passes out string that can call script."""
 
-    def __init__(self, processing_script=None):
-        self.processing_script = processing_script
+    def __init__(self, processing_script=default_processing_script, **kwargs):
+        self.processing_script = processing_script.read_text()
         if processing_script:
             self.processing_script_path = Path('post-process.sh')
 
@@ -36,15 +39,16 @@ class OpenMMProcessing(base):
         else:
             return ''
 
+
 class OpenMM(base):
     """OpenMM wrapper for running md simulations or minimizing
     structures
 
     Parameters
     ----------
-    top_file : str,
+    topology : str,
         OpenMM compatible topology file.
-    python_OMM_script : str,
+    python_omm_script : str,
         python_OMM_script specifying simulation to be run.
     n_cpus : int, default = 1,
         The number of cpus to use with the simulation.
@@ -52,7 +56,7 @@ class OpenMM(base):
         The number of gpus to use with the simulation. If None, will
         only use cpus.
     processing_obj : object, default = None,
-        Object that when run will write a provided script for projcessing a
+        Object that when run will write a provided script for processing a
         trajectory, then return a command to run it.
     submission_obj : object,
         Submission object used for running the simulation. Look into
@@ -62,48 +66,60 @@ class OpenMM(base):
     env_exports : str, default=None,
         A list of commands to submit before running a job.
     """
-    def __init__(self, top_file, submission_obj, python_OMM_script=default_omm_script, n_cpus=1, n_gpus=None,
-                 processing_obj=None, index_file=None, itp_files=None,
+    def __init__(self, topology_fn, integrator_fn, system_fn, state_fn, steps, temperature, submission_obj,
+                 python_omm_script=default_omm_script,
+                 write_freq=10000,
+                 output_prefix='frame0',
+                 plaform_name=None,
+                 platform_properties=None,
+                 output_reporters=None,
+                 processing_obj=None,
                  min_run=False,
-                 env_exports=None, **kwargs):
-        self.top_file = os.path.abspath(top_file)
-        self.mdp_file = os.path.abspath(mdp_file)
-        self.n_cpus = n_cpus
-        self.n_gpus = n_gpus
+                 env_exports=None):
+        # bind openmm script path
+        self.omm_script_p = python_omm_script
+
+        # set up a bunch of reporters by default. These'll be written to a space delimited outfile.
+        if not output_reporters:
+            self.output_reporters = dict(
+                step=True,
+                time=True,
+                potentialEnergy=True,
+                totalEnergy=True,
+                temperature=True,
+                progress=True,
+                remainingTime=True,
+                speed=True,
+                elapsed_time=True,
+                totalSteps=steps,
+                separator=' '
+            )
+        # set the default platform properties to be mixed prec.
+        if not platform_properties:
+            self.platform_properties = {'Precision': 'mixed'}
+
+        # read in the simulation components for the study.
+        self.topology_p = Path(topology_fn).absolute()
+        self.integrator_p = Path(integrator_fn).absolute()
+        self.system_p = Path(system_fn).absolute()
+        self.state_p = Path(state_fn).absolute()
+        self.temperature = temperature
+        self.write_freq = write_freq
+        self.output_prefix = output_prefix
+        self.platform_name = plaform_name
+
         if env_exports is None:
             self.env_exports = ''
         else:
             self.env_exports = env_exports
-        # If processing_obj is not specified use GromaxProcessing as
-        # default.
+        # If processing_obj is not specified use openMMProcessing as default.
         if processing_obj is None:
-            self.processing_obj = OpenMMProcessing()
+            self.processing_obj = OpenMMProcessing(self.topology_fn)
         else:
             self.processing_obj = processing_obj
         # bind submission obj
         self.submission_obj = submission_obj
-        # determine index file
-        if type(index_file) is str:
-            self.index_file = os.path.abspath(index_file)
-        else:
-            self.index_file = index_file
-        # determine additional topology files
-        if itp_files is None:
-            self.itp_files = itp_files
-        elif type(itp_files) is str:
-            self.itp_files = np.array([os.path.abspath(itp_files)])
-        else:
-            self.itp_files = np.array(
-                [os.path.abspath(top_file) for top_file in itp_files])
-        # stringify max_warn
-        self.max_warn = str(max_warn)
         self.min_run = min_run
-        # get full path of source_file
-        if source_file is None:
-            self.source_file = source_file
-        else:
-            self.source_file = os.path.abspath(source_file)
-        self.kwargs = kwargs
 
     @property
     def class_name(self):
@@ -112,18 +128,20 @@ class OpenMM(base):
     @property
     def config(self):
         return {
-            'top_file': self.top_file,
-            'mdp_file': self.mdp_file,
-            'n_cpus': self.n_cpus,
-            'n_gpus': self.n_gpus,
+            'topology': str(self.topology_p),
+            'integrator': str(self.integrator_p),
+            'system': str(self.system_p),
+            'state': str(self.state_p),
+            'out reporters': self.output_reporters,
+            'platform name': self.platform_name,
+            'platform properties': self.platform_properties,
+            'python_OMM_script': self.omm_script_p,
+            'write_freq': self.write_freq,
+            'output_prefix': self.output_prefix,
             'processing_obj': self.processing_obj,
-            'index_file': self.index_file,
-            'itp_files': self.itp_files,
             'submission_obj': self.submission_obj,
-            'max_warn': self.max_warn,
             'min_run': self.min_run,
-            'source_file': self.source_file,
-            'env_exports' : self.env_exports
+            'env_exports': self.env_exports
         }
 
 
@@ -164,8 +182,8 @@ class OpenMM(base):
             source_cmd = 'source ' + self.source_file + '\n\n'
         # generate grompp command
         grompp_cmd = 'gmx grompp -f ' + self.mdp_file + ' -c ' + \
-            self.start_name + ' -p ' + self.top_file + ' -o ' + \
-            base_output_name + ' -maxwarn ' + self.max_warn
+                     self.start_name + ' -p ' + self.topology_fn + ' -o ' + \
+                     base_output_name + ' -maxwarn ' + self.max_warn
         # optionally add an index file
         if self.index_file is not None:
             grompp_cmd +=  ' -n ' + self.index_file

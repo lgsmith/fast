@@ -1,4 +1,4 @@
-from openmm.app import Simulation, PDBxFile, DCDReporter, StateDataReporter
+from openmm.app import Simulation, PDBFile, DCDReporter, StateDataReporter
 from openmm import XmlSerializer, Platform
 from pathlib import Path
 import json
@@ -8,7 +8,7 @@ with open(argv[1]) as f:
     conf = json.load(f)
 
 # load the system components
-topology = PDBxFile(conf['topology']).getTopology()
+topology = PDBFile(conf['topology']).getTopology()
 integrator = XmlSerializer.deserialize(Path(conf['integrator']).read_text())
 system = XmlSerializer.deserialize(Path(conf['system']).read_text())
 simulation = Simulation(topology, system, integrator, Platform.getPlatformByName(conf['platform name']),
