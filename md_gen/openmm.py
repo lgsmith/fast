@@ -2,25 +2,20 @@ import mdtraj as md
 import numpy as np
 import os
 from .. import tools
-
+from pathlib import Path
 import submissions
 from ..base import base
 
+with open('openmm_jobber.py', 'r') as f:
+    default_omm_script = f.read()
 
 class OpenMMProcessing(base):
-    """Generates commands for aligning a trajectory and determining
-    output coordinates."""
+    """Writes a script for postprocessing simulations into directory, then passes out string that can call script."""
 
-    def __init__(self, align_group=None, output_group=None, pbc='cluster',
-                 ur='compact', index_file=None):
-        self.align_group = str(align_group)
-        self.output_group = str(output_group)
-        self.pbc = pbc
-        self.ur = ur
-        if index_file is None:
-            self.index_file = index_file
-        else:
-            self.index_file = os.path.abspath(index_file)
+    def __init__(self, processing_script=None):
+        self.processing_script = processing_script
+        if processing_script:
+            self.processing_script_path = Path('post-process.sh')
 
     @property
     def class_name(self):
@@ -29,29 +24,17 @@ class OpenMMProcessing(base):
     @property
     def config(self):
         return {
-            'align_group': self.align_group,
-            'output_group': self.output_group,
-            'pbc': self.pbc,
-            'ur': self.ur
+            'processing_script': self.processing_script,
+            'processing_script_path': self.processing_script_path
         }
 
     def run(self):
-        if self.align_group is None:
-            trjconv_cmd = ""
+        if self.processing_script:
+            with open('post-process.sh', 'w') as f:
+                f.write(self.processing_script)
+            return './post-process.sh'
         else:
-            trjconv_alignment = \
-                "echo '" + self.align_group + " 0' | gmx trjconv " + \
-                "-f frame0.xtc -o frame0_aligned.xtc -s md.tpr -center " + \
-                "-pbc " + self.pbc + " -ur " + self.ur
-            trjconv_output_groups = \
-                "echo '" + self.align_group + " " + self.output_group + \
-                "' | gmx trjconv -f frame0.xtc -o frame0_masses.xtc" + \
-                " -s md.tpr -center -pbc " + self.pbc + " -ur " + self.ur
-            if self.index_file is not None:
-                trjconv_alignment += " -n " + self.index_file
-                trjconv_output_groups += " -n " + self.index_file
-            trjconv_cmd = trjconv_alignment + "\n" + trjconv_output_groups + "\n"
-        return trjconv_cmd
+            return ''
 
 class OpenMM(base):
     """OpenMM wrapper for running md simulations or minimizing
@@ -69,31 +52,20 @@ class OpenMM(base):
         The number of gpus to use with the simulation. If None, will
         only use cpus.
     processing_obj : object, default = None,
-        Object that when run will output commands for processing
-        trajectory. Look at GromaxProcessing.
-    index_file : str, default = None,
-        Optionally supply an index file.
-    itp_files : list, default = None,
-        Optionally supply a list of itp files that go along with the
-        topology file.
+        Object that when run will write a provided script for projcessing a
+        trajectory, then return a command to run it.
     submission_obj : object,
         Submission object used for running the simulation. Look into
         SlurmSub or OSSub.
-    max_warn : int, default = 2,
-        Maximum number of gromacs warnings to allow.
     min_run : bool, default = False,
         Is this a minimization run? Helps with output naming.
-    source_file : str, default = None,
-        The path to a gromacs GMXRC file to source before running
-        simulations.
     env_exports : str, default=None,
         A list of commands to submit before running a job.
     """
-    def __init__(self, top_file, python_OMM_script, n_cpus=1, n_gpus=None,
+    def __init__(self, top_file, submission_obj, python_OMM_script=default_omm_script, n_cpus=1, n_gpus=None,
                  processing_obj=None, index_file=None, itp_files=None,
-                 submission_obj=None, max_warn=2, min_run=False,
-                 source_file=None, env_exports=None, **kwargs):
-        """initialize some gromax files and parameters"""
+                 min_run=False,
+                 env_exports=None, **kwargs):
         self.top_file = os.path.abspath(top_file)
         self.mdp_file = os.path.abspath(mdp_file)
         self.n_cpus = n_cpus
@@ -105,16 +77,11 @@ class OpenMM(base):
         # If processing_obj is not specified use GromaxProcessing as
         # default.
         if processing_obj is None:
-            self.processing_obj = GromaxProcessing()
+            self.processing_obj = OpenMMProcessing()
         else:
             self.processing_obj = processing_obj
-        # If submission_obj is not specified, use SlurmSub with the
-        # p100.q queue.
-        if submission_obj is None:
-            self.submission_obj = submissions.slurm_subs.SlurmSub(
-                'p100.q', n_cpus=self.n_cpus, job_name='gromax_md')
-        else:
-            self.submission_obj = submission_obj
+        # bind submission obj
+        self.submission_obj = submission_obj
         # determine index file
         if type(index_file) is str:
             self.index_file = os.path.abspath(index_file)

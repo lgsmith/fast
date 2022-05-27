@@ -7,8 +7,6 @@ from sys import argv
 with open(argv[1]) as f:
     conf = json.load(f)
 
-
-
 # load the system components
 topology = PDBxFile(conf['topology']).getTopology()
 integrator = XmlSerializer.deserialize(Path(conf['integrator']).read_text())
