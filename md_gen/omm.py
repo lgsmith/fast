@@ -3,6 +3,7 @@ import numpy as np
 from .. import tools
 from pathlib import Path
 import os
+import json
 import submissions
 from ..base import base
 
@@ -66,7 +67,8 @@ class OpenMM(base):
     env_exports : str, default=None,
         A list of commands to submit before running a job.
     """
-    def __init__(self, topology_fn, integrator_fn, system_fn, state_fn, steps, temperature, submission_obj,
+    def __init__(self, topology_fn, integrator_fn, system_fn, state_fn, steps,
+                 temperature, submission_obj,
                  python_omm_script=default_omm_script,
                  write_freq=10000,
                  output_prefix='frame0',
@@ -77,6 +79,8 @@ class OpenMM(base):
                  min_run=False,
                  env_exports=None):
         # bind openmm script path
+        self.output_dir = None
+        self.start_name = None
         self.omm_script_p = python_omm_script
 
         # set up a bunch of reporters by default. These'll be written to a space delimited outfile.
@@ -114,7 +118,7 @@ class OpenMM(base):
             self.env_exports = env_exports
         # If processing_obj is not specified use openMMProcessing as default.
         if processing_obj is None:
-            self.processing_obj = OpenMMProcessing(self.topology_fn)
+            self.processing_obj = OpenMMProcessing()
         else:
             self.processing_obj = processing_obj
         # bind submission obj
@@ -141,9 +145,10 @@ class OpenMM(base):
             'processing_obj': self.processing_obj,
             'submission_obj': self.submission_obj,
             'min_run': self.min_run,
-            'env_exports': self.env_exports
+            'env_exports': self.env_exports,
+            'start_name': self.start_name,
+            'output_dir': self.output_dir
         }
-
 
     def setup_run(self, struct, output_dir=None):
         # set output directory
@@ -160,65 +165,23 @@ class OpenMM(base):
             self.start_name = self.output_dir + '/start.gro'
         else:
             self.start_name = os.path.abspath(struct)
-        # move over additional topology files
-        if self.itp_files is not None:
-            cmds = []
-            for filename in self.itp_files:
-                cmds.append('cp ' + filename + ' ' + self.output_dir + ' -r')
-            tools.run_commands(cmds)
-        return
+        # openmm jobber reads the config file, so dump it into the output dir.
+        config_path = Path(self.output_dir)/'config.json'
+        with config_path.open('w') as f:
+            json.dump(self.config, f)
+        return config_path
+
 
     def run(self, struct, output_dir=None, check_continue=True):
         # setup_run
-        self.setup_run(struct=struct, output_dir=output_dir)
+        config_path = self.setup_run(struct=struct, output_dir=output_dir)
         if self.min_run:
             base_output_name = 'em'
         else:
             base_output_name = 'md'
-        # source command
-        if self.source_file is None:
-            source_cmd = ''
-        else:
-            source_cmd = 'source ' + self.source_file + '\n\n'
-        # generate grompp command
-        grompp_cmd = 'gmx grompp -f ' + self.mdp_file + ' -c ' + \
-                     self.start_name + ' -p ' + self.topology_fn + ' -o ' + \
-                     base_output_name + ' -maxwarn ' + self.max_warn
-        # optionally add an index file
-        if self.index_file is not None:
-            grompp_cmd +=  ' -n ' + self.index_file
-        grompp_cmd += '\n'
-        # generate mdrun command
-        # JRP added '-cpi state -g md' on 07-01-2019
-        mdrun_cmd = 'gmx mdrun -cpi state -g md -s ' + base_output_name + ' -o ' + \
-            base_output_name + ' -c after_' + base_output_name + ' -v -nt ' + \
-            str(self.n_cpus)
-        # if an MD run, make default name for trajectory
-        if not self.min_run:
-            mdrun_cmd += ' -x frame0'
-        # add gpus to mdrun command
-        if self.n_gpus is not None:
-            if self.n_cpus%self.n_gpus != 0:
-                raise
-            mdrun_cmd += ' -ntmpi ' + str(self.n_gpus) + ' -ntomp ' + \
-                str(int(self.n_cpus/self.n_gpus))
-        # adds additional keywords that are not specified
-        keys = list(self.kwargs.keys())
-        values = list(self.kwargs.values())
-        additions = " ".join(
-            ['-' + i[0] + ' ' + i[1] for i in np.transpose([keys, values])])
-        mdrun_cmd += ' ' + additions + '\n'
-        # check for previous tpr for continuation
-        if check_continue:
-            tpr_filename = self.output_dir + "/md.tpr"
-            bash_check_cmd = 'if [ ! -f "%s" ]; then\n' % tpr_filename
-            bash_check_cmd += '    echo "Didn\'t find md.tpr, running grompp..."\n'
-            bash_check_cmd += '    ls\n    pwd\n    %s' % grompp_cmd
-            bash_check_cmd += 'else\n    echo "Found md.tpr, not running grompp"\nfi\n\n'
-            grompp_cmd = bash_check_cmd
-        # combine commands and submit to submission object
-        cmds = [self.env_exports, source_cmd, grompp_cmd, mdrun_cmd]
-        cmds.append(self.processing_obj.run())
-        job_id = self.submission_obj.run(cmds, output_dir=output_dir)
+        # python run command to put in the jobscript
+        cmd = 'python {jobber} {conf}'.format(jobber=self.omm_script_p,
+                                              conf=config_path)
+        job_id = self.submission_obj.run(cmd, output_dir=output_dir)
         return job_id
 
