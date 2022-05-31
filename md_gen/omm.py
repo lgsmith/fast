@@ -10,16 +10,20 @@ from ..base import base
 
 # read in default job & processing scripts, for use in Processing and Run objects below.
 default_omm_script = Path('omm_jobber.py').absolute()
-default_processing_script = Path('default-aligner.sh', 'r').absolute()
+default_processing_script = Path('default-converter.sh', 'r').absolute()
 
 
 class OpenMMProcessing(base):
-    """Writes a script for postprocessing simulations into directory, then passes out string that can call script."""
+    """Writes a script for postprocessing simulations into directory,
+    then passes out string to call script. Applies kwargs as key-value pairs to
+    call to format script once it's read in as string, allowing customization."""
 
-    def __init__(self, processing_script=default_processing_script, **kwargs):
-        self.processing_script = processing_script.read_text()
-        if processing_script:
+    def __init__(self, processing_template=default_processing_script, **kwargs):
+        if processing_template:
+            self.processing_template = processing_template.read_text()
+            self.processing_script = processing_template.format(**kwargs)
             self.processing_script_path = Path('post-process.sh')
+
 
     @property
     def class_name(self):
@@ -31,6 +35,9 @@ class OpenMMProcessing(base):
             'processing_script': self.processing_script,
             'processing_script_path': self.processing_script_path
         }
+
+    def update_processing_script(self, **kwargs):
+        self.processing_script = self.processing_template.format(**kwargs)
 
     def run(self):
         if self.processing_script:
@@ -101,6 +108,7 @@ class OpenMM(base):
         # set the default platform properties to be mixed prec.
         if not platform_properties:
             self.platform_properties = {'Precision': 'mixed'}
+
 
         # read in the simulation components for the study.
         self.topology_p = Path(topology_fn).absolute()
