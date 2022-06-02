@@ -10,7 +10,6 @@ from ..base import base
 
 # read in default job & processing scripts, for use in Processing and Run objects below.
 default_omm_script = Path('omm_jobber.py').absolute()
-default_processing_script = Path('default-converter.sh', 'r').absolute()
 
 
 class OpenMMProcessing(base):
@@ -18,7 +17,7 @@ class OpenMMProcessing(base):
     then passes out string to call script. Applies kwargs as key-value pairs to
     call to format script once it's read in as string, allowing customization."""
 
-    def __init__(self, processing_template=default_processing_script, **kwargs):
+    def __init__(self, processing_template=None, **kwargs):
         if processing_template:
             self.processing_template = processing_template.read_text()
             self.processing_script = processing_template.format(**kwargs)
@@ -176,7 +175,7 @@ class OpenMM(base):
         # openmm jobber reads the config file, so dump it into the output dir.
         config_path = Path(self.output_dir)/'config.json'
         with config_path.open('w') as f:
-            json.dump(self.config, f)
+            json.dump(self.config, f, indent=4)
         return config_path
 
 
